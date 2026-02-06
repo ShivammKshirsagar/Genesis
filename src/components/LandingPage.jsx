@@ -5,6 +5,8 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 
 const MAPBOX_TOKEN = 'pk.eyJ1IjoibXZjMjQiLCJhIjoiY21sYWNxd3RyMDl5cjNocjQwNTg1dmZiaSJ9.PLmSdYIrEhtAP3HU3T3weg';
 
+const API_BASE_URL = 'http://localhost:5000';
+
 const climateImpactsDB = {
 	'Cricket': { category: 'Sports', impacts: [{ type: 'heat', severity: 'high', title: 'Extreme Heat Risk', description: 'Matches increasingly interrupted by heat waves. Player safety concerns above 35°C.' }, { type: 'drought', severity: 'medium', title: 'Pitch Quality Decline', description: 'Drought conditions affect ground moisture, making pitches harder and more dangerous.' }, { type: 'rain', severity: 'high', title: 'Rain Interruptions', description: 'More frequent intense rainfall leads to match abandonments and schedule disruptions.' }], icon: Trophy, color: '#ef4444' },
 	'Football': { category: 'Sports', impacts: [{ type: 'heat', severity: 'high', title: 'Player Heat Stress', description: 'Increased cooling breaks required. Higher injury rates in extreme temperatures.' }, { type: 'water', severity: 'medium', title: 'Pitch Maintenance', description: 'Water scarcity increases costs for maintaining natural grass pitches.' }, { type: 'extreme', severity: 'medium', title: 'Infrastructure Damage', description: 'Floods and storms damage stadiums and training facilities.' }], icon: Dribbble, color: '#f97316' },
@@ -16,21 +18,93 @@ const climateImpactsDB = {
 	'Wildlife Watching': { category: 'Nature', impacts: [{ type: 'biodiversity', severity: 'critical', title: 'Species Migration', description: 'Range shifts mean iconic species may no longer be found in traditional locations.' }, { type: 'habitat', severity: 'critical', title: 'Habitat Loss', description: 'Coral bleaching, deforestation, and wetland loss reduce wildlife populations.' }, { type: 'season', severity: 'high', title: 'Behavioral Changes', description: 'Altered breeding and migration seasons disrupt traditional viewing times.' }], icon: Bird, color: '#10b981' }
 };
 
-// --- Mock API Function ---
-const fetchStoryData = async (payload) => {
-	return new Promise((resolve) => {
-		setTimeout(() => {
-			resolve({
-				"title": `The Future of ${payload.interest} in ${payload.city}`,
-				"summary": `As the climate in ${payload.city} continues to change, the city's relationship with ${payload.interest} may struggle to adapt, forcing a shift in the way we experience this beloved activity.`,
-				"chapters": [
-					{ "id": 1, "title": `A Perfect Morning in ${payload.city}`, "text": `The sun rises over the bustling streets of ${payload.city}, casting a warm glow over the city's vibrant culture. The aroma of fresh air wafts through the streets. As we look at the current climate data, things seem stable, but the trends are shifting beneath the surface.`, "mapState": { "zoom": 11, "pitch": 0, "overlay": "none" } },
-					{ "id": 2, "title": "The Shift Begins", "text": "As the years go by, the city's climate starts to change. The average temperature rises by 1.5°C. The heat becomes more oppressive, and outdoor activities struggle to keep up with the demand for cooling. The once-vibrant outdoor spaces become less inviting.", "mapState": { "zoom": 13, "pitch": 45, "overlay": "heat" } },
-					{ "id": 3, "title": "A New Reality", "text": "By 2050, the effects of climate change are starkly apparent. Precipitation patterns have shifted drastically. The landscape has adapted, but the traditional ways of enjoying this interest have had to evolve significantly to survive the new extreme weather patterns.", "mapState": { "zoom": 15, "pitch": 60, "overlay": "drought" } }
-				]
-			});
-		}, 1500);
-	});
+// Extract weather data from chapter text using regex or return defaults
+const extractWeatherFromChapter = (chapter, baseWeather) => {
+	const text = chapter.text || '';
+
+	// Try to extract temperature from text (e.g., "30.3°C" or "31.3°C")
+	const tempMatch = text.match(/(\d+\.?\d*)\s*°C/);
+	const temp = tempMatch ? parseFloat(tempMatch[1]) : null;
+
+	// Try to extract precipitation change
+	const precipMatch = text.match(/decreased by (\d+)%/);
+	const precipChange = precipMatch ? parseInt(precipMatch[1]) : 0;
+
+	// Determine year from title or text
+	const yearMatch = text.match(/By (\d{4})/) || chapter.title.match(/(\d{4})/);
+	const year = yearMatch ? parseInt(yearMatch[1]) : 2026;
+
+	// Calculate progress based on year (2026 to 2050)
+	const progress = Math.min(1, Math.max(0, (year - 2026) / 26));
+
+	if (!baseWeather) return null;
+
+	const current = baseWeather.current;
+	const daily = baseWeather.daily;
+
+	return {
+		year,
+		current: {
+			...current,
+			temperature_2m: temp || (current.temperature_2m + progress * 2.5),
+			apparent_temperature: temp ? temp + 2 : (current.apparent_temperature + progress * 3),
+			relative_humidity_2m: Math.max(15, current.relative_humidity_2m - progress * 20),
+			wind_speed_10m: current.wind_speed_10m + progress * 10,
+			wind_gusts_10m: current.wind_gusts_10m + progress * 15,
+			surface_pressure: current.surface_pressure - progress * 15,
+		},
+		daily: {
+			...daily,
+			temperature_2m_max: [(temp || daily.temperature_2m_max[0]) + progress * 2],
+			temperature_2m_min: [(temp ? temp - 5 : daily.temperature_2m_min[0]) + progress * 1.5],
+			uv_index_max: [Math.min(12, daily.uv_index_max[0] + progress * 4)],
+			precipitation_sum: [Math.max(0, daily.precipitation_sum[0] * (1 - precipChange / 100))],
+			precipitation_probability_max: [Math.min(100, daily.precipitation_probability_max[0] + progress * 25)],
+		}
+	};
+};
+
+const extractAQIFromChapter = (chapter, baseAQI) => {
+	if (!baseAQI) return null;
+
+	const text = chapter.text || '';
+	const yearMatch = text.match(/By (\d{4})/) || chapter.title.match(/(\d{4})/);
+	const year = yearMatch ? parseInt(yearMatch[1]) : 2026;
+	const progress = Math.min(1, Math.max(0, (year - 2026) / 26));
+
+	const current = baseAQI.current;
+
+	// AQI gets significantly worse in later chapters
+	const aqiWorsening = chapter.overlay === 'heat' ? 40 : chapter.overlay === 'drought' ? 80 : 0;
+
+	return {
+		current: {
+			...current,
+			us_aqi: Math.min(500, current.us_aqi + progress * aqiWorsening + (progress * 30)),
+			pm2_5: current.pm2_5 + progress * 30,
+			pm10: current.pm10 + progress * 40,
+			ozone: current.ozone + progress * 25,
+		}
+	};
+};
+
+const extractClimateFromChapter = (chapter, baseClimate) => {
+	if (!baseClimate) return null;
+
+	const text = chapter.text || '';
+	const yearMatch = text.match(/By (\d{4})/) || chapter.title.match(/(\d{4})/);
+	const year = yearMatch ? parseInt(yearMatch[1]) : 2026;
+	const progress = Math.min(1, Math.max(0, (year - 2026) / 26));
+
+	// Extract temperature increase from text
+	const increaseMatch = text.match(/(\d+\.?\d*)\s*°C\s*increase/);
+	const tempIncrease = increaseMatch ? parseFloat(increaseMatch[1]) : progress * 2.0;
+
+	return {
+		year,
+		currentAnomaly: (parseFloat(baseClimate.currentAnomaly) + tempIncrease).toFixed(1),
+		projections: baseClimate.projections
+	};
 };
 
 const EnhancedLandingPage = () => {
@@ -82,9 +156,11 @@ const EnhancedLandingPage = () => {
 			const weatherResponse = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${coords[1]}&longitude=${coords[0]}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,cloud_cover,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m&daily=temperature_2m_max,temperature_2m_min,uv_index_max,precipitation_sum,precipitation_probability_max&timezone=auto`);
 			const weather = await weatherResponse.json();
 			setWeatherData(weather);
+
 			const aqResponse = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${coords[1]}&longitude=${coords[0]}&current=pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone,aerosol_optical_depth,dust,uv_index,us_aqi,european_aqi&timezone=auto`);
 			const aq = await aqResponse.json();
 			setAirQualityData(aq);
+
 			const climateProjection = { currentAnomaly: estimateTempAnomaly(coords[1]), projections: { '2030': (parseFloat(estimateTempAnomaly(coords[1])) + 0.5).toFixed(1), '2050': (parseFloat(estimateTempAnomaly(coords[1])) + 1.2).toFixed(1), '2080': (parseFloat(estimateTempAnomaly(coords[1])) + 2.0).toFixed(1) } };
 			setClimateData(climateProjection);
 		} catch (err) { console.error('Error fetching climate data:', err); }
@@ -185,20 +261,51 @@ const EnhancedLandingPage = () => {
 	const activeInterestName = interests[0] || otherInterests[0] || 'Your Interest';
 	const activeInterestData = climateImpactsDB[activeInterestName] || { color: '#6366f1', icon: Globe2 };
 
+	// REAL API CALL to localhost:5000
 	const handleGenerateStory = async () => {
 		if (!isFormValid) return;
 		setIsGenerating(true); stopRotation();
 		const primaryInterest = interests[0] || otherInterests[0];
+
 		try {
-			const data = await fetchStoryData({ city: selectedCity.name, lat: selectedCity.coords[1], long: selectedCity.coords[0], interest: primaryInterest });
-			setStoryData(data); setStoryMode(true); setCurrentChapterIndex(0); isAutoPlayingRef.current = true;
-		} catch (error) { console.error("Failed to generate story", error); }
-		finally { setIsGenerating(false); }
+			const response = await fetch(`${API_BASE_URL}/api/generate-story`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					city: selectedCity.name,
+					lat: selectedCity.coords[1],
+					long: selectedCity.coords[0],
+					interest: primaryInterest
+				})
+			});
+
+			if (!response.ok) {
+				throw new Error(`API error: ${response.status}`);
+			}
+
+			const data = await response.json();
+			setStoryData(data);
+			setStoryMode(true);
+			setCurrentChapterIndex(0);
+			isAutoPlayingRef.current = true;
+		} catch (error) {
+			console.error("Failed to generate story:", error);
+			alert("Failed to connect to story API. Make sure localhost:5000 is running.");
+		} finally {
+			setIsGenerating(false);
+		}
 	};
 
 	const resetStory = () => {
-		setStoryMode(false); setStoryData(null); setCurrentChapterIndex(0); isAutoPlayingRef.current = false;
-		if (mapRef.current && selectedCity) { mapRef.current.flyTo({ center: selectedCity.coords, zoom: 10, pitch: 0 }); }
+		setStoryMode(false);
+		setStoryData(null);
+		setCurrentChapterIndex(0);
+		isAutoPlayingRef.current = false;
+		if (mapRef.current && selectedCity) {
+			mapRef.current.flyTo({ center: selectedCity.coords, zoom: 10, pitch: 0 });
+		}
 	};
 
 	const handleManualNav = (newIndex) => {
@@ -208,12 +315,39 @@ const EnhancedLandingPage = () => {
 
 	const getOverlayClass = () => {
 		if (!storyMode || !storyData) return '';
-		const overlay = storyData.chapters[currentChapterIndex].mapState.overlay;
+		const chapter = storyData.chapters[currentChapterIndex];
+		const overlay = chapter.mapState?.overlay || 'none';
 		if (overlay === 'heat') return 'overlay-heat';
 		if (overlay === 'drought') return 'overlay-drought';
 		if (overlay === 'flood') return 'overlay-flood';
 		return '';
 	};
+
+	// Get dynamic widget data based on current chapter from API
+	const getDisplayWeather = () => {
+		if (!weatherData) return null;
+		if (!storyMode || !storyData) return weatherData;
+		const chapter = storyData.chapters[currentChapterIndex];
+		return extractWeatherFromChapter(chapter, weatherData);
+	};
+
+	const getDisplayAQI = () => {
+		if (!airQualityData) return null;
+		if (!storyMode || !storyData) return airQualityData;
+		const chapter = storyData.chapters[currentChapterIndex];
+		return extractAQIFromChapter(chapter, airQualityData);
+	};
+
+	const getDisplayClimate = () => {
+		if (!climateData) return null;
+		if (!storyMode || !storyData) return climateData;
+		const chapter = storyData.chapters[currentChapterIndex];
+		return extractClimateFromChapter(chapter, climateData);
+	};
+
+	const displayWeather = getDisplayWeather();
+	const displayAQI = getDisplayAQI();
+	const displayClimate = getDisplayClimate();
 
 	return (
 		<div className="landing-container">
@@ -233,18 +367,8 @@ const EnhancedLandingPage = () => {
 				.main-content { position: fixed; top: 0; left: 0; width: 100%; height: 100vh; display: flex; align-items: center; justify-content: flex-end; padding: 2rem; z-index: 5; pointer-events: none; }
 				.glass-card { background: rgba(20, 25, 40, 0.75); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 24px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); pointer-events: auto; }
 				.form-panel { width: 400px; max-height: 90vh; overflow-y: auto; padding: 1.75rem; transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
-				
-				/* Story Panel - Reasonable Size */
-				.story-panel { 
-					width: 420px; 
-					display: flex; 
-					flex-direction: column; 
-					gap: 1.25rem; 
-					padding: 1.75rem; 
-					animation: slideIn 0.6s ease-out; 
-				}
+				.story-panel { width: 420px; display: flex; flex-direction: column; gap: 1.25rem; padding: 1.75rem; animation: slideIn 0.6s ease-out; }
 				@keyframes slideIn { from { opacity: 0; transform: translateX(50px); } to { opacity: 1; transform: translateX(0); } }
-				
 				.form-section { margin-bottom: 1.5rem; }
 				.form-section:last-child { margin-bottom: 0; }
 				.section-label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; font-weight: 600; color: rgba(255, 255, 255, 0.9); margin-bottom: 0.75rem; }
@@ -299,8 +423,8 @@ const EnhancedLandingPage = () => {
 				.uv-gauge-value { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 1.25rem; font-weight: 700; color: white; }
 				.aqi-bar { height: 6px; background: linear-gradient(to right, #22c55e, #eab308, #f97316, #ef4444, #dc2626); border-radius: 3px; margin-top: 0.5rem; position: relative; }
 				.aqi-marker { position: absolute; top: -3px; width: 4px; height: 12px; background: white; border-radius: 2px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+				.year-badge { position: absolute; top: -10px; right: -10px; background: linear-gradient(135deg, #6366f1, #ec4899); color: white; font-size: 0.65rem; font-weight: 700; padding: 0.25rem 0.5rem; border-radius: 10px; }
 				
-				/* Story Mode Styles - Reasonable */
 				.chapter-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
 				.chapter-indicator { display: flex; gap: 0.5rem; }
 				.dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.2); transition: all 0.3s; cursor: pointer; }
@@ -330,9 +454,9 @@ const EnhancedLandingPage = () => {
 					<Globe2 className="logo-icon" />
 					<span>Climate Story Engine</span>
 				</div>
-				{storyMode && (
+				{storyMode && displayClimate && (
 					<div className="header-badge" style={{ background: 'rgba(236, 72, 153, 0.2)', borderColor: 'rgba(236, 72, 153, 0.4)' }}>
-						<span>Auto-Playing</span>
+						<span>Year: {displayClimate.year}</span>
 					</div>
 				)}
 			</div>
@@ -373,7 +497,6 @@ const EnhancedLandingPage = () => {
 							</div>
 							<div className="other-input-row">
 								<input ref={otherInterestInputRef} type="text" className="other-input" placeholder={otherInterests.length >= 5 ? "Max reached" : "Add custom interest..."} value={otherInterestInput} onChange={(e) => setOtherInterestInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addOtherInterest())} disabled={otherInterests.length >= 5} />
-								<button type="button" className="add-btn" onClick={addOtherInterest} disabled={!otherInterestInput.trim()}><Sun size={20} /></button>
 							</div>
 							{otherInterests.length > 0 && (<div className="tags-row">{otherInterests.map((interest) => (<span key={interest} className="tag">{interest}<button type="button" className="tag-remove" onClick={() => removeOtherInterest(interest)}><X size={12} /></button></span>))}</div>)}
 						</div>
@@ -413,48 +536,55 @@ const EnhancedLandingPage = () => {
 				)}
 			</div>
 
-			{selectedCity && weatherData && (
+			{displayWeather && (
 				<div className="live-data-panel">
-					<div className="data-card glass-card">
+					<div className="data-card glass-card" style={{ position: 'relative' }}>
+						{storyMode && displayClimate && <div className="year-badge">{displayClimate.year}</div>}
 						<div className="data-card-header"><Thermometer size={14} /><span>Temperature</span></div>
-						<div className="data-card-value">{Math.round(weatherData.current.temperature_2m)}<span className="data-card-unit">°C</span></div>
-						<div className="data-card-status" style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}>Feels like {Math.round(weatherData.current.apparent_temperature)}°C</div>
-						<div className="data-card-sub">H: {Math.round(weatherData.daily.temperature_2m_max[0])}° L: {Math.round(weatherData.daily.temperature_2m_min[0])}°</div>
+						<div className="data-card-value">{Math.round(displayWeather.current.temperature_2m)}<span className="data-card-unit">°C</span></div>
+						<div className="data-card-status" style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}>Feels like {Math.round(displayWeather.current.apparent_temperature)}°C</div>
+						<div className="data-card-sub">H: {Math.round(displayWeather.daily.temperature_2m_max[0])}° L: {Math.round(displayWeather.daily.temperature_2m_min[0])}°</div>
 					</div>
 					<div className="data-card glass-card">
 						<div className="data-card-header"><Wind size={14} /><span>Wind</span></div>
-						<div className="data-card-value">{Math.round(weatherData.current.wind_speed_10m)}<span className="data-card-unit">km/h</span></div>
-						<div className="mini-grid"><div className="mini-item"><div className="mini-label">Direction</div><div className="mini-value">{weatherData.current.wind_direction_10m}°</div></div><div className="mini-item"><div className="mini-label">Gusts</div><div className="mini-value">{Math.round(weatherData.current.wind_gusts_10m)}</div></div></div>
+						<div className="data-card-value">{Math.round(displayWeather.current.wind_speed_10m)}<span className="data-card-unit">km/h</span></div>
+						<div className="mini-grid"><div className="mini-item"><div className="mini-label">Direction</div><div className="mini-value">{displayWeather.current.wind_direction_10m}°</div></div><div className="mini-item"><div className="mini-label">Gusts</div><div className="mini-value">{Math.round(displayWeather.current.wind_gusts_10m)}</div></div></div>
 					</div>
-					{weatherData.daily.uv_index_max[0] !== undefined && (
+					{displayWeather.daily.uv_index_max[0] !== undefined && (
 						<div className="data-card glass-card" style={{ minWidth: '140px' }}>
 							<div className="data-card-header"><Sun size={14} /><span>UV Index</span></div>
-							<div className="uv-gauge"><svg width="60" height="60" viewBox="0 0 60 60"><circle className="uv-gauge-bg" cx="30" cy="30" r="25" /><circle className="uv-gauge-fill" cx="30" cy="30" r="25" style={{ stroke: getUVLevel(weatherData.daily.uv_index_max[0]).color, strokeDasharray: `${(weatherData.daily.uv_index_max[0] / 12) * 157} 157` }} /></svg><div className="uv-gauge-value">{Math.round(weatherData.daily.uv_index_max[0])}</div></div>
-							<div className="data-card-status" style={{ background: `${getUVLevel(weatherData.daily.uv_index_max[0]).color}30`, color: getUVLevel(weatherData.daily.uv_index_max[0]).color }}>{getUVLevel(weatherData.daily.uv_index_max[0]).label}</div>
+							<div className="uv-gauge"><svg width="60" height="60" viewBox="0 0 60 60"><circle className="uv-gauge-bg" cx="30" cy="30" r="25" /><circle className="uv-gauge-fill" cx="30" cy="30" r="25" style={{ stroke: getUVLevel(displayWeather.daily.uv_index_max[0]).color, strokeDasharray: `${(displayWeather.daily.uv_index_max[0] / 12) * 157} 157` }} /></svg><div className="uv-gauge-value">{Math.round(displayWeather.daily.uv_index_max[0])}</div></div>
+							<div className="data-card-status" style={{ background: `${getUVLevel(displayWeather.daily.uv_index_max[0]).color}30`, color: getUVLevel(displayWeather.daily.uv_index_max[0]).color }}>{getUVLevel(displayWeather.daily.uv_index_max[0]).label}</div>
 						</div>
 					)}
-					{airQualityData && airQualityData.current.us_aqi !== undefined && (
+					{displayAQI && displayAQI.current.us_aqi !== undefined && (
 						<div className="data-card glass-card" style={{ minWidth: '180px' }}>
 							<div className="data-card-header"><Activity size={14} /><span>Air Quality</span></div>
-							<div className="data-card-value">{Math.round(airQualityData.current.us_aqi)}<span className="data-card-unit">AQI</span></div>
-							<div className="data-card-status" style={{ background: `${getAQILevel(airQualityData.current.us_aqi).color}30`, color: getAQILevel(airQualityData.current.us_aqi).color }}>{getAQILevel(airQualityData.current.us_aqi).label}</div>
-							<div className="aqi-bar"><div className="aqi-marker" style={{ left: `${Math.min((airQualityData.current.us_aqi / 300) * 100, 100)}%` }} /></div>
-							<div className="mini-grid" style={{ marginTop: '0.75rem' }}><div className="mini-item"><div className="mini-label">PM2.5</div><div className="mini-value">{Math.round(airQualityData.current.pm2_5)}</div></div><div className="mini-item"><div className="mini-label">PM10</div><div className="mini-value">{Math.round(airQualityData.current.pm10)}</div></div></div>
+							<div className="data-card-value">{Math.round(displayAQI.current.us_aqi)}<span className="data-card-unit">AQI</span></div>
+							<div className="data-card-status" style={{ background: `${getAQILevel(displayAQI.current.us_aqi).color}30`, color: getAQILevel(displayAQI.current.us_aqi).color }}>{getAQILevel(displayAQI.current.us_aqi).label}</div>
+							<div className="aqi-bar"><div className="aqi-marker" style={{ left: `${Math.min((displayAQI.current.us_aqi / 300) * 100, 100)}%` }} /></div>
+							<div className="mini-grid" style={{ marginTop: '0.75rem' }}><div className="mini-item"><div className="mini-label">PM2.5</div><div className="mini-value">{Math.round(displayAQI.current.pm2_5)}</div></div><div className="mini-item"><div className="mini-label">PM10</div><div className="mini-value">{Math.round(displayAQI.current.pm10)}</div></div></div>
 						</div>
 					)}
 					<div className="data-card glass-card">
 						<div className="data-card-header"><Droplets size={14} /><span>Precipitation</span></div>
-						<div className="data-card-value">{Math.round(weatherData.daily.precipitation_sum[0])}<span className="data-card-unit">mm</span></div>
-						<div className="data-card-status" style={{ background: 'rgba(96, 165, 250, 0.2)', color: '#60a5fa' }}>{weatherData.daily.precipitation_probability_max[0]}% chance</div>
-						<div className="mini-grid"><div className="mini-item"><div className="mini-label">Humidity</div><div className="mini-value">{weatherData.current.relative_humidity_2m}%</div></div><div className="mini-item"><div className="mini-label">Pressure</div><div className="mini-value">{Math.round(weatherData.current.surface_pressure)}</div></div></div>
+						<div className="data-card-value">{Math.round(displayWeather.daily.precipitation_sum[0])}<span className="data-card-unit">mm</span></div>
+
+						<div
+							className="data-card-status"
+							style={{ background: 'rgba(96, 165, 250, 0.2)', color: '#60a5fa' }}
+						>
+							{Number(displayWeather.daily.precipitation_probability_max[0]).toFixed(2)}% chance
+						</div>
+						<div className="mini-grid"><div className="mini-item"><div className="mini-label">Humidity</div><div className="mini-value">{Math.round(displayWeather.current.relative_humidity_2m)}%</div></div><div className="mini-item"><div className="mini-label">Pressure</div><div className="mini-value">{Math.round(displayWeather.current.surface_pressure)}</div></div></div>
 					</div>
-					{climateData && (
+					{displayClimate && (
 						<div className="data-card glass-card" style={{ minWidth: '160px' }}>
 							<div className="data-card-header"><Flame size={14} /><span>Climate</span></div>
-							<div className="data-card-value">+{climateData.currentAnomaly}<span className="data-card-unit">°C</span></div>
+							<div className="data-card-value">+{displayClimate.currentAnomaly}<span className="data-card-unit">°C</span></div>
 							<div className="data-card-status" style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}>Anomaly</div>
-							<div className="data-card-sub">2050: +{climateData.projections['2050']}°C</div>
-							<div className="aqi-bar" style={{ background: 'linear-gradient(to right, #3b82f6, #8b5cf6, #ec4899, #ef4444)' }}><div className="aqi-marker" style={{ left: `${(parseFloat(climateData.currentAnomaly) / 4) * 100}%` }} /></div>
+							<div className="data-card-sub">{storyMode ? 'Projected' : '2050'}: +{displayClimate.projections['2050']}°C</div>
+							<div className="aqi-bar" style={{ background: 'linear-gradient(to right, #3b82f6, #8b5cf6, #ec4899, #ef4444)' }}><div className="aqi-marker" style={{ left: `${(parseFloat(displayClimate.currentAnomaly) / 4) * 100}%` }} /></div>
 						</div>
 					)}
 				</div>
