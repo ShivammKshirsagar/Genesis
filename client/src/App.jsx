@@ -1,6 +1,5 @@
 import React from 'react';
-import MapVisualizer from './components/MapVisualizer';
-import './App.css';
+import MapVisualizer from './components/Map/MapVisualizer';
 
 function App() {
   return (
