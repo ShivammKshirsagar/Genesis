@@ -1,127 +1,103 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+// server/src/services/aiService.js
+const Groq = require("groq-sdk");
 require('dotenv').config();
 
-/**
- * Demo-safe Gemini wrapper
- *
- * Requirements this module enforces:
- * - Default to Gemini 1.5 Flash for stability (Gemini 2.0 often has entitlement issues in hackathon/free setups).
- * - Model name configurable in ONE place (env var), but always safe if AI is unavailable.
- * - Never throw from AI path; always return a story JSON object with the exact same shape.
- * - Simple in-memory cache by (location + interest) to avoid repeated AI calls during a demo.
- */
+// Initialize Groq Client
+// Make sure GROQ_API_KEY is in your .env file!
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-const DEFAULT_MODEL = 'gemini-1.5-flash';
-const GEMINI_TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS) || 12_000;
+// The model: Llama 3 8B (Fastest & Free)
+const MODEL_NAME = "llama-3.1-8b-instant"; 
 
-// Cache: key -> storyJson
+// Cache to save money/time
 const storyCache = new Map();
-
-function getModelName() {
-  return (process.env.GEMINI_MODEL && process.env.GEMINI_MODEL.trim()) || DEFAULT_MODEL;
-}
 
 function cacheKey({ city, interest }) {
   return `${String(city || '').trim().toLowerCase()}|${String(interest || '').trim().toLowerCase()}`;
 }
 
-function withTimeout(promise, ms) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error(`Gemini timeout after ${ms}ms`)), ms)),
-  ]);
-}
-
-function buildFallbackStory({ city, interest, rawStats }) {
-  const safeCity = city || 'your city';
-  const safeInterest = interest || 'your interest';
-  const tempInc = rawStats?.temp_increase ?? 'some';
-  const rainPct = rawStats?.rain_change_pct ?? 'unknown';
-
+// --- The Safety Net (Fallback) ---
+// If Groq fails, this story is returned so the app doesn't crash.
+function buildFallbackStory({ city, interest }) {
+  const safeCity = city || 'Mumbai';
+  const safeInterest = interest || 'Cricket';
+  
   return {
     title: `The Future of ${safeInterest} in ${safeCity}`,
-    summary: `A grounded look at how changing heat and rainfall could reshape ${safeInterest} in ${safeCity} by 2050.`,
+    summary: `A grounded look at how changing heat and rainfall could reshape ${safeInterest} by 2050.`,
     chapters: [
       {
         id: 1,
-        title: 'Today: The Familiar Rhythm',
-        text: `Right now, ${safeCity} still supports the routines you love about ${safeInterest}—with predictable seasons and manageable extremes. But small shifts are already showing up: warmer nights, sharper heat spikes, and weather that changes faster than it used to.`,
-        mapState: { zoom: 11, pitch: 0, overlay: 'none' },
+        year: 2025,
+        title: "The Present (2025)",
+        text: `Today in 2025, ${safeCity} supports the routines you love. The weather is familiar, though subtle shifts are already appearing.`,
+        mapState: { zoom: 11, pitch: 0, overlay: "none" }
       },
       {
         id: 2,
-        title: 'The Shift: Heat Becomes the New Baseline',
-        text: `Over the coming decades, a roughly ${tempInc}°C rise in peak temperatures can turn “normal” days into stress days. For ${safeInterest}, that means adjusting timing, hydration, routes, and rest—because the best results will come from working with the climate, not against it.`,
-        mapState: { zoom: 13, pitch: 45, overlay: 'heat' },
+        year: 2035,
+        title: "The Shift (2035)",
+        text: `By 2035, rising temperatures change the baseline. You might notice shorter windows for ${safeInterest} as heat rises.`,
+        mapState: { zoom: 13, pitch: 45, overlay: "heat" }
       },
       {
         id: 3,
-        title: '2050: Adapting, Not Giving Up',
-        text: `By 2050, the biggest winners in ${safeCity} will be the people and places that adapt early: more shade, cooler surfaces, smarter schedules, and community spaces designed for comfort. Even if rainfall changes by about ${rainPct}%, ${safeInterest} can still thrive—with planning that treats climate risk as a design constraint.`,
-        mapState: { zoom: 15, pitch: 60, overlay: 'drought' },
-      },
-    ],
+        year: 2050,
+        title: "The Future (2050)",
+        text: `In 2050, adaptation is key. Smarter planning and resilience allow ${safeInterest} to continue in a new form despite the climate shift.`,
+        mapState: { zoom: 15, pitch: 60, overlay: "drought" }
+      }
+    ]
   };
 }
 
-function extractJsonFromModelText(text) {
-  // Gemini sometimes wraps JSON in code fences or adds leading/trailing prose.
-  const cleaned = String(text || '').replace(/```json/g, '').replace(/```/g, '').trim();
-
-  // Try direct parse first.
-  try {
-    return JSON.parse(cleaned);
-  } catch (_) {
-    // Try to extract the first JSON object in the response.
-    const start = cleaned.indexOf('{');
-    const end = cleaned.lastIndexOf('}');
-    if (start !== -1 && end !== -1 && end > start) {
-      const slice = cleaned.slice(start, end + 1);
-      return JSON.parse(slice);
-    }
-    throw new Error('Model output was not valid JSON.');
-  }
-}
-
+// --- The Main Generator Function ---
 async function generateStoryJson({ prompt, city, interest, rawStats }) {
   const key = cacheKey({ city, interest });
+  
+  // 1. Check Cache
   if (storyCache.has(key)) return storyCache.get(key);
 
-  const modelName = getModelName();
-  const apiKey = process.env.GEMINI_API_KEY;
-
-  // If key is missing, skip AI entirely (demo-safe).
-  if (!apiKey) {
-    const story = buildFallbackStory({ city, interest, rawStats });
-    storyCache.set(key, story);
-    return story;
+  // 2. Check Key
+  if (!process.env.GROQ_API_KEY) {
+    console.log("⚠️ No GROQ_API_KEY found. Using Fallback.");
+    return buildFallbackStory({ city, interest });
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: modelName });
-    const result = await withTimeout(model.generateContent(prompt), GEMINI_TIMEOUT_MS);
-    const response = await result.response;
-    const story = extractJsonFromModelText(response.text());
+    console.log(`[AI] Sending request to Groq (${MODEL_NAME})...`);
+    
+    // 3. Send Request
+    const completion = await groq.chat.completions.create({
+      messages: [
+        { 
+          role: "system", 
+          content: "You are a JSON generator. You must output VALID JSON only. Do not add markdown ```json blocks." 
+        },
+        { 
+          role: "user", 
+          content: prompt 
+        }
+      ],
+      model: MODEL_NAME,
+      temperature: 0.5,
+      // This forces Groq to return JSON (Critical feature!)
+      response_format: { type: "json_object" } 
+    });
 
-    // Cache successful AI responses.
+    // 4. Parse Response
+    const jsonString = completion.choices[0]?.message?.content || "";
+    const story = JSON.parse(jsonString);
+    
+    console.log("✅ Groq Story Generated!");
     storyCache.set(key, story);
     return story;
-  } catch (err) {
-    // Never propagate AI failure: log clearly and return fallback.
-    const msg = String(err?.message || err);
-    console.error(
-      `[AI] Gemini failed (model=${modelName}, timeout=${GEMINI_TIMEOUT_MS}ms). Returning fallback story. Error: ${msg}`
-    );
 
-    const story = buildFallbackStory({ city, interest, rawStats });
-    storyCache.set(key, story);
-    return story;
+  } catch (error) {
+    console.error(`❌ Groq Failed: ${error.message}`);
+    // If AI fails, return fallback silently
+    return buildFallbackStory({ city, interest });
   }
 }
 
-module.exports = {
-  DEFAULT_MODEL,
-  generateStoryJson,
-};
-
+module.exports = { generateStoryJson };
