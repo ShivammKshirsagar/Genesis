@@ -1,10 +1,9 @@
-import { useState } from 'react'
 import './App.css'
-
+import EnhancedLandingPage from './components/LandingPage'
 function App() {
 	return (
 		<>
-			<h1>Genesis</h1>
+			<EnhancedLandingPage />
 		</>
 	)
 }
