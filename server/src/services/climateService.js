@@ -1,7 +1,7 @@
 // server/src/services/climateService.js
 const axios = require('axios');
 
-// 1. Fetch History (What happened?)
+//  Fetch Historical Weather Data (What happened?)
 const getHistoricalWeather = async (lat, lon) => {
     try {
         const url = `https://archive-api.open-meteo.com/v1/archive`;
@@ -66,22 +66,23 @@ const calculateImpact = (history, future) => {
     };
 };
 
- // TEMP: Run this file directly to test -> "node climateService.js"
-(async () => {
-    console.log("Fetching Data for Mumbai...");
+if (require.main === module) {
+    (async () => {
+        console.log("Fetching Data for Mumbai...");
 
-    // 1. Get Data
-    const past = await getHistoricalWeather(19.07, 72.87);
-    const future = await getFutureClimate(19.07, 72.87);
+        // 1. Get Data
+        const past = await getHistoricalWeather(19.07, 72.87);
+        const future = await getFutureClimate(19.07, 72.87);
 
-    // 2. Analyze
-    if (past && future) {
-        const impact = calculateImpact(past, future);
-        console.log("✅ SUCCESS! Calculated Impact:");
-        console.table(impact);
-    } else {
-        console.log("❌ Failed to fetch data.");
-    }
-})();
+        // 2. Analyze
+        if (past && future) {
+            const impact = calculateImpact(past, future);
+            console.log("✅ SUCCESS! Calculated Impact:");
+            console.table(impact);
+        } else {
+            console.log("❌ Failed to fetch data.");
+        }
+    })();
+}
 
 module.exports = { getHistoricalWeather, getFutureClimate, calculateImpact };
