@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -14,14 +15,60 @@
     <link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet" />
 
     <style>
-      /* Ensure the body and html take up the full screen so the map can too */
       body, html, #root {
         margin: 0;
         padding: 0;
         width: 100%;
         height: 100%;
         overflow: hidden;
-        background-color: #121212; /* Matches your Dark Mode theme */
+        background-color: #121212;
+      }
+
+      .is-hidden {
+        display: none;
+      }
+
+      #story-container {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: 400px;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.85);
+        backdrop-filter: blur(10px);
+        z-index: 1000;
+        overflow-y: auto;
+        padding: 20px;
+        box-sizing: border-box;
+        display: none;
+      }
+
+      #story-container.visible {
+        display: block;
+      }
+
+      .scroll-step {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 40px;
+      }
+
+      .narrative-text {
+        color: #ffffff;
+        font-size: 18px;
+        line-height: 1.6;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+
+      @media (max-width: 768px) {
+        #story-container {
+          width: 100%;
+          height: 50vh;
+          top: auto;
+          bottom: 0;
+        }
       }
     </style>
   </head>
@@ -29,6 +76,18 @@
     <noscript>You need to enable JavaScript to run this app.</noscript>
     
     <div id="root"></div>
+    
+    <aside id="story-container" class="story-panel">
+      <div id="story-content" class="story-content-wrapper">
+        <div class="scroll-step" data-step="0"></div>
+        <div class="scroll-step" data-step="1"></div>
+        <div class="scroll-step" data-step="2"></div>
+        <div class="scroll-step" data-step="3"></div>
+        <div class="scroll-step" data-step="4"></div>
+      </div>
+    </aside>
+
     <script type="module" src="/src/index.jsx"></script>
   </body>
 </html>
+```

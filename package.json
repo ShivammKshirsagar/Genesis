@@ -1,55 +1,92 @@
 {
 
-  "name": "genesis",
-  "version": "1.0.0",
+  "name": "map-wizard-project",
+
+  "version": "0.1.0",
+
   "description": "Climate storytelling application",
+
   "private": true,
+
   "workspaces": [
+
     "server",
+
     "client"
+
   ],
+
   "scripts": {
-    "dev": "npm run dev --workspace=server",
-    "start": "npm start --workspace=server"
+
+    "dev": "npm run dev --prefix client",
+
+    "start": "react-scripts start",
+
+    "build": "react-scripts build",
+
+    "test": "react-scripts test",
+
+    "eject": "react-scripts eject"
+
   },
+
   "engines": {
+
     "node": ">=18.0.0"
+
+  },
+
+  "dependencies": {
+
+    "mapbox-gl": "^3.18.1",
+
+    "react": "^18.2.0",
+
+    "react-dom": "^18.2.0",
+
+    "react-scripts": "5.0.1",
+
+    "scrollama": "^3.2.0",
+
+    "web-vitals": "^2.1.4"
+
+  },
+
+  "eslintConfig": {
+
+    "extends": [
+
+      "react-app",
+
+      "react-app/jest"
+
+    ]
+
+  },
+
+  "browserslist": {
+
+    "production": [
+
+      ">0.2%",
+
+      "not dead",
+
+      "not op_mini all"
+
+    ],
+
+    "development": [
+
+      "last 1 chrome version",
+
+      "last 1 firefox version",
+
+      "last 1 safari version"
+
+    ]
+
   }
 
-    ,"name": "map-wizard-project",
-    "version": "0.1.0",
-    "private": true,
-    "dependencies": {
-        "mapbox-gl": "^3.18.1",
-        "react": "^18.2.0",
-        "react-dom": "^18.2.0",
-        "react-scripts": "5.0.1",
-        "web-vitals": "^2.1.4"
-    },
-    "scripts": {
-        "dev": "npm run dev --prefix client",
-        "start": "react-scripts start",
-        "build": "react-scripts build",
-        "test": "react-scripts test",
-        "eject": "react-scripts eject"
-    },
-    "eslintConfig": {
-        "extends": [
-            "react-app",
-            "react-app/jest"
-        ]
-    },
-    "browserslist": {
-        "production": [
-            ">0.2%",
-            "not dead",
-            "not op_mini all"
-        ],
-        "development": [
-            "last 1 chrome version",
-            "last 1 firefox version",
-            "last 1 safari version"
-        ]
-    }
-
 }
+
