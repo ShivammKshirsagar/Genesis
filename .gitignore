@@ -2,7 +2,7 @@
 node_modules/
 
 ### Environment / secrets (do not commit)
-.env
+server/.env
 .env.*
 !.env.example
 
