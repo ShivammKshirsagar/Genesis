@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { MapPin, Sparkles, ArrowRight, Globe2, Trophy, Dribbble, Sprout, Waves, Mountain, ShoppingBag, Camera, Bird, Thermometer, Search, X, Wind, Droplets, Sun, Activity, Flame, Loader2, ChevronRight, ChevronLeft } from 'lucide-react';
+import { MapPin, Sparkles, ArrowRight, Globe2, Trophy, Dribbble, Sprout, Waves, Mountain, ShoppingBag, Camera, Bird, Thermometer, Search, X, Wind, Droplets, Sun, Activity, Flame, Loader2, ChevronRight, ChevronLeft, Play, Pause } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
@@ -128,6 +128,7 @@ const EnhancedLandingPage = () => {
 	const [storyData, setStoryData] = useState(null);
 	const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
 	const [isGenerating, setIsGenerating] = useState(false);
+	const [isPlaying, setIsPlaying] = useState(true); // NEW: Play/Pause state
 
 	const mapContainerRef = useRef(null);
 	const mapRef = useRef(null);
@@ -137,7 +138,6 @@ const EnhancedLandingPage = () => {
 	const abortControllerRef = useRef(null);
 	const markerRef = useRef(null);
 	const isRotatingRef = useRef(true);
-	const isAutoPlayingRef = useRef(true);
 
 	const useDebounce = (value, delay) => {
 		const [debouncedValue, setDebouncedValue] = useState(value);
@@ -218,17 +218,19 @@ const EnhancedLandingPage = () => {
 		}
 	}, [currentChapterIndex, storyMode, storyData, selectedCity]);
 
+	// NEW: Autoplay effect with play/pause control
 	useEffect(() => {
-		if (!storyMode || !storyData) return;
-		if (!isAutoPlayingRef.current) return;
+		if (!storyMode || !storyData || !isPlaying) return;
+
 		const interval = setInterval(() => {
 			setCurrentChapterIndex((prev) => {
 				if (prev < storyData.chapters.length - 1) return prev + 1;
-				return 0;
+				return 0; // Loop back to start
 			});
 		}, 8000);
+
 		return () => clearInterval(interval);
-	}, [storyMode, storyData, currentChapterIndex]);
+	}, [storyMode, storyData, isPlaying]);
 
 	const handleCitySelect = (cityData) => {
 		setSelectedCity(cityData); setCity(cityData.name); setSearchQuery(cityData.fullName); setIsSearchFocused(false); setSuggestions([]); stopRotation(); fetchLiveClimateData(cityData.coords);
@@ -289,7 +291,7 @@ const EnhancedLandingPage = () => {
 			setStoryData(data);
 			setStoryMode(true);
 			setCurrentChapterIndex(0);
-			isAutoPlayingRef.current = true;
+			setIsPlaying(true); // Start playing automatically
 		} catch (error) {
 			console.error("Failed to generate story:", error);
 			alert("Failed to connect to story API. Make sure localhost:5000 is running.");
@@ -302,15 +304,21 @@ const EnhancedLandingPage = () => {
 		setStoryMode(false);
 		setStoryData(null);
 		setCurrentChapterIndex(0);
-		isAutoPlayingRef.current = false;
+		setIsPlaying(false);
 		if (mapRef.current && selectedCity) {
 			mapRef.current.flyTo({ center: selectedCity.coords, zoom: 10, pitch: 0 });
 		}
 	};
 
+	// NEW: Manual navigation pauses autoplay
 	const handleManualNav = (newIndex) => {
-		isAutoPlayingRef.current = false;
+		setIsPlaying(false);
 		setCurrentChapterIndex(newIndex);
+	};
+
+	// NEW: Toggle play/pause
+	const togglePlayPause = () => {
+		setIsPlaying(prev => !prev);
 	};
 
 	const getOverlayClass = () => {
@@ -426,9 +434,13 @@ const EnhancedLandingPage = () => {
 				.year-badge { position: absolute; top: -10px; right: -10px; background: linear-gradient(135deg, #6366f1, #ec4899); color: white; font-size: 0.65rem; font-weight: 700; padding: 0.25rem 0.5rem; border-radius: 10px; }
 				
 				.chapter-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
-				.chapter-indicator { display: flex; gap: 0.5rem; }
+				.chapter-indicator { display: flex; gap: 0.5rem; align-items: center; }
 				.dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.2); transition: all 0.3s; cursor: pointer; }
 				.dot.active { background: white; transform: scale(1.2); box-shadow: 0 0 10px white; }
+				.floating-play-pause { background: rgba(96, 165, 250, 0.2); backdrop-filter: blur(20px); border: 1px solid rgba(96, 165, 250, 0.4); color: #60a5fa; width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); }
+				.floating-play-pause:hover { background: rgba(96, 165, 250, 0.3); transform: translateY(-2px); box-shadow: 0 6px 16px rgba(96, 165, 250, 0.4); }
+				.floating-play-pause.playing { background: rgba(236, 72, 153, 0.2); border-color: rgba(236, 72, 153, 0.4); color: #ec4899; }
+				.floating-play-pause.playing:hover { background: rgba(236, 72, 153, 0.3); box-shadow: 0 6px 16px rgba(236, 72, 153, 0.4); }
 				.story-title { font-size: 1.5rem; font-weight: 700; line-height: 1.2; margin-bottom: 0.5rem; background: linear-gradient(to right, #fff, #a5b4fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 				.story-summary { font-size: 0.9rem; color: rgba(255,255,255,0.6); line-height: 1.5; margin-bottom: 0.5rem; }
 				.chapter-card { background: rgba(0,0,0,0.2); border-radius: 16px; padding: 1.25rem; border: 1px solid rgba(255,255,255,0.05); }
@@ -455,9 +467,18 @@ const EnhancedLandingPage = () => {
 					<span>Climate Story Engine</span>
 				</div>
 				{storyMode && displayClimate && (
-					<div className="header-badge" style={{ background: 'rgba(236, 72, 153, 0.2)', borderColor: 'rgba(236, 72, 153, 0.4)' }}>
-						<span>Year: {displayClimate.year}</span>
-					</div>
+					<>
+						<div className="header-badge" style={{ background: 'rgba(236, 72, 153, 0.2)', borderColor: 'rgba(236, 72, 153, 0.4)' }}>
+							<span>Year: {displayClimate.year}</span>
+						</div>
+						<button
+							className={`floating-play-pause ${isPlaying ? 'playing' : ''}`}
+							onClick={togglePlayPause}
+							title={isPlaying ? 'Pause autoplay' : 'Resume autoplay'}
+						>
+							{isPlaying ? <Pause size={18} /> : <Play size={18} />}
+						</button>
+					</>
 				)}
 			</div>
 
